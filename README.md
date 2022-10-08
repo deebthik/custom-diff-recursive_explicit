@@ -1,6 +1,6 @@
 SCRIPT TO GET A COMPLETE RECURSIVE DIFF B/W TWO FOLDERS
 
-Usage : ./diff.sh <directory1> <directory2>
+Usage : ./diff.sh \<directory1\> \<directory2\>
 
 The output would be the following:
 	1. A list of all the diffs
