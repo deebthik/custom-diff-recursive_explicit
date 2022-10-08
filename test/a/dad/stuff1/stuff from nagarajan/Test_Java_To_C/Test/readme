@@ -1,0 +1,46 @@
+Calling C funcions from JAVA File using JNI
+------------------------------------------------
+1. Create .C (HelloWorld.c) as bellow
+
+#include "jni.h"
+#include "stdio.h"
+#include "JavaToC.h"
+JNIEXPORT void JNICALL Java_JavaToC_testC(JNIEnv *env, jobject javaobj) 
+{
+	printf("Hello World: From CS");
+	return;
+}
+
+2. Create JAVA (JavaToC.java) file
+
+public class JavaToC {
+
+    public native void testC();
+
+    static {
+        System.loadLibrary("HelloWorld");
+    }
+
+    public static void main(String[] args) {
+        new JavaToC().testC();
+    }
+}
+
+3. Create HEder file from JAVA File using javah
+
+../../jdk-8u291-linux-x64/jdk1.8.0_291/bin/javah JavaToC 
+
+4. Compile C File and Create .so file
+
+cc HelloWorld.c -I ../../jdk-8u291-linux-x64/jdk1.8.0_291/include/linux/ -I ../../jdk-8u291-linux-x64/jdk1.8.0_291/include/ -shared -o libHelloWorld.so
+
+5. Compile JAVA File
+
+../../jdk-8u291-linux-x64/jdk1.8.0_291/bin/javac JavaToC.java  
+
+
+6. Run JAVA program 
+
+java -classpath . -Djava.library.path=. JavaToC
+
+

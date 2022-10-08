@@ -1,0 +1,277 @@
+#!/bin/bash
+
+#NOTE: PLEASE PLACE THE SCRIPT AND BOTH DIRECTORIES INSIDE THE SAME FOLDER, AND ALSO RUN THE SCRIPT FROM WITHIN THE SAME FOLDER WHERE IT'S LOCATED (<- Have to fix this)
+
+
+#-------------Checking validity of script arguments---------------#
+
+if [ "$1" != "gendiff" ] && [ "$1" != "viewdiff" ] || [ "$2" == "" ]
+then
+	echo "Wrong usage of script!" 
+	echo "CORRECT USAGE -> ./diff.sh gendiff <directory1> <directory2> OR ./diff.sh viewdiff <file>"
+	echo "EXITING..."
+exit
+fi
+
+if [[ "$1" == "gendiff" ]]
+then
+
+	if [ ! -d "$2" ]
+	then 
+		echo "$2 directory does not exist!"
+		echo "CORRECT USAGE -> ./diff.sh gendiff <directory1> <directory2> OR ./diff.sh viewdiff <file>"
+		echo "EXITING..."
+	exit
+	fi
+
+	if [ ! -d "$3"  ]
+	then
+		echo "$3 directory does not exist!"
+		echo "CORRECT USAGE -> ./diff.sh gendiff <directory1> <directory2> OR ./diff.sh viewdiff <file>"
+		echo "EXITING..."
+	exit
+	fi
+
+elif [[ "$1" == "viewdiff" ]]
+then
+
+	if [ ! -f "$2" ]
+	then 
+		echo "$2 file does not exist!"
+		echo "CORRECT USAGE -> ./diff.sh gendiff <directory1> <directory2> OR ./diff.sh viewdiff <file>"
+		echo "EXITING..."
+	exit
+	fi
+
+fi
+
+
+#------------------------------------------------------#
+
+
+dir1=$2
+dir2=$3
+
+#removing the trailing slash in given arguments (directory names) if they exist
+if [ ${2: -1} == "/" ]
+then
+	size=${#2}
+	dir1=$(echo $2 | cut -c 1-$(($size-1)))
+fi
+
+if [ ${3: -1} == "/" ]
+then
+	size=${#3}
+	dir2=$(echo $3 | cut -c 1-$(($size-1)))
+fi
+
+
+diffdeets="diffdeets"
+
+
+#generating diff -> creating a diff list, generating and saving all the diffs under the same folder tree structure, and finally displaying the colored diff overview tree
+if [ "$1" == "gendiff" ]
+then
+
+	diffdestdir1="$diffdeets/diff1"
+	diffdestdir2="$diffdeets/diff2"
+	diffdestdir3="$diffdeets/diff3"
+
+
+	mkdir -p "$diffdestdir1"
+	mkdir -p "$diffdestdir2"
+	mkdir -p "$diffdestdir3"
+
+
+	echo
+	echo "CREATING A LIST OF DIFFS..."
+	diff -rq "$dir1" "$dir2" > $diffdeets/difflist.txt
+	echo "DIFF LIST CREATED! CAN BE FOUND HERE -> $diffdeets/difflist.txt"
+
+	echo
+	echo "GENERATING ALL THE DIFFS AND SAVING THEM UNDER THE SAME FOLDER STRUCTURE..."
+
+	slashcount=$(grep -o '/' <<<"$dir1" | grep -c .)
+
+
+	while IFS= read -r line
+	do
+
+		if [ "$(echo $line | cut -f 1 -d " ")" == "Files" ]
+		then
+
+			currentpath=$(echo "$line" | awk -F"Files " '{print $2}' | awk -F" and $dir2/" '{print $1}')
+			name=$(echo "$currentpath" | sed 's|.*/||')
+			tail=$(echo "$currentpath" | cut -d "/" -f$((slashcount+2))-)
+			middle=$(echo "$tail" | sed 's|\(.*\)/.*|\1|')
+
+			currentpath2="$dir2/$tail"
+			destdir="$diffdestdir3/$middle"
+			
+			mkdir -p "$destdir"
+			diff "$currentpath" "$currentpath2" > "$destdir/$name"
+			
+
+		elif [ "$(echo "$line" | cut -f 1 -d " ")" == "Only" ]
+		then
+			
+			currentpath=$(echo "$line" | awk -F"Only in " '{print $2}' | awk -F": " '{print $1}')
+			middle=$(echo "$currentpath" | cut -d "/" -f$((slashcount+2))-)
+			name=$(echo "$line" | cut -d ":" -f2- | cut -c 2-)
+
+			if [[ "$currentpath" =~ "$dir1" ]]	
+			then
+
+				destdir="$diffdestdir1/$middle"
+				mkdir -p "$destdir"
+				cp -r "$currentpath/$name" "$destdir/$name"
+
+			elif [[ "$currentpath" =~ "$dir2"  ]]
+			then
+
+				destdir="$diffdestdir2/$middle"
+				mkdir -p "$destdir"
+				cp -r "$currentpath/$name" "$destdir/$name"			
+
+			fi
+
+
+		fi
+
+	done < $diffdeets/difflist.txt
+
+
+
+	function renameall () {
+
+		mv "$1" "$(echo $1 | sed 's|\(.*\)/.*|\1|')/$2$(echo $1 | sed 's|.*/||')"
+
+	}
+
+
+	function revertrenames () {
+
+		tail=$(echo "$1" | cut -d "/" -f3- | sed 's/^.//')
+
+		if [ -d "temp/diff3/_$tail" ] || [ -d "$2/$tail" ]
+		then
+
+			mv "$1" "$(echo $1 | sed 's|\(.*\)/.*|\1|')/_$tail"
+
+		fi
+
+	}
+
+	export -f renameall
+	export -f revertrenames
+
+
+	find $diffdestdir1 -mindepth 1 -depth -exec bash -c "renameall '{}' +" \;
+	find $diffdestdir2 -mindepth 1 -depth -exec bash -c "renameall '{}' -" \;
+	find $diffdestdir3 -mindepth 1 -depth -exec bash -c "renameall '{}' _" \;
+
+	find $diffdestdir1 -mindepth 1 -depth -type d -exec bash -c "revertrenames '{}' '$dir2' '-'" \;
+	find $diffdestdir2 -mindepth 1 -depth -type d -exec bash -c "revertrenames '{}' '$dir1' '+'" \;
+
+	rsync -a $diffdestdir2/ $diffdestdir1
+	rsync -a $diffdestdir3/ $diffdestdir1
+
+	mv $diffdestdir1 $diffdeets/diff
+
+	rm -rf $diffdestdir2
+	rm -rf $diffdestdir3
+
+	echo "DIFFS SAVED! CAN BE FOUND HERE -> $diffdeets/diff"
+
+
+	#function to display an overview of the diff with folder tree structs
+	function viewdiff () {
+		
+		prefix="\033[1;"
+		suffix="\033[0m"
+		
+		name=$(echo $1 | sed 's|.*/||' | cut -c2-)
+		type=$(echo $1 | sed 's|.*/||' | cut -c1-1)
+
+		spacecount=$(grep -o '/' <<<"$1" | grep -c .)
+		spacecount=$((spacecount-2))
+		spacecount=$((spacecount*1))
+		space=$(for i in $(seq 1 $spacecount);do if [[ $i -eq 1 ]]; then printf "%s" "|"; else printf "%s" "   |"; fi; done; if [[ $spacecount -gt 0 ]]; then printf "%s""-- "; fi)
+
+
+		if [ -d "$1" ]
+		then
+
+			if [ "$type" == "+" ]
+			then
+				printf "$prefix""42m$space$name$suffix\n" | tee -a $2/coloreddiffoverview.txt
+			elif [ "$type" == "-" ]
+			then
+				printf "$prefix""46m$space$name$suffix\n" | tee -a $2/coloreddiffoverview.txt
+			elif [ "$type" == "_" ]
+			then
+				printf "$prefix""43m$space$name$suffix\n" | tee -a $2/coloreddiffoverview.txt
+			fi
+
+		elif [ -f "$1" ]
+		then
+
+			if [ "$type" == "+" ]
+			then
+				printf "$prefix""32m$space$name$suffix\n" | tee -a $2/coloreddiffoverview.txt
+			elif [ "$type" == "-" ]
+			then
+				printf "$prefix""36m$space$name$suffix\n" | tee -a $2/coloreddiffoverview.txt
+			elif [ "$type" == "_" ]
+			then
+				printf "$prefix""33m$space$name$suffix\n" | tee -a $2/coloreddiffoverview.txt
+			fi
+
+		fi
+
+	}
+
+	export -f viewdiff
+
+	echo
+	echo "GENERATING COLORED DIFF OVERVIEW TREE..."
+	echo
+
+	find $diffdeets/diff -mindepth 1 -exec bash -c "viewdiff '{}' $diffdeets" \;
+
+	echo
+	echo "COLORED DIFF OVERVIEW TREE DISPLAYED ABOVE! ^"
+	prefix="\033[1;"
+	suffix="\033[0m"
+	printf "$prefix""32mFile only in $dir1$suffix\n"
+	printf "$prefix""36mFile only in $dir2$suffix\n"
+	printf "$prefix""33mCommon file with differences$suffix\n"
+	printf "$prefix""42mFolder only in $dir1$suffix\n"
+	printf "$prefix""46mFolder only in $dir2$suffix\n"
+	printf "$prefix""43mCommon folder with differences$suffix\n"
+	echo
+	echo "COLORED DIFF OVERVIEW CONTENTS SAVED! CAN BE FOUND HERE -> $diffdeets/coloreddiffoverview.txt"
+	echo
+
+
+
+#can be used just for reading the saved file with colored diff overview contents
+elif [[ "$1" == "viewdiff" ]]
+then
+
+	echo
+	echo "DISPLAYING COLORED DIFF OVERVIEW TREE..."
+	echo	
+
+	while IFS= read -r line
+	do
+
+		printf "$line\n"
+
+	done < $diffdeets/coloreddiffoverview.txt
+
+	echo
+	echo "COLORED DIFF OVERVIEW TREE DISPLAYED ABOVE! ^"
+	echo
+
+fi

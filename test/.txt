@@ -1,0 +1,10 @@
+Only in b/stuff2: bla
+Only in b/stuff2: bla.txt
+Only in a/stuff1: fwef
+Only in a/stuff1: qefefq
+Only in b/stuff2/stuff from nagarajan: rergerg
+Only in a/stuff1: Test
+Only in a/stuff1/test1: base644.c
+Files a/stuff1/test1/base64.c and b/stuff2/test1/base64.c differ
+Only in a/stuff1: test1.zip
+Only in a/stuff1: Test_Java_To_C

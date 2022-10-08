@@ -1,0 +1,217 @@
+#!/bin/bash
+
+if [ "$1" != "gendiff" ] && [ "$1" != "viewdiff" ] || [ "$2" == "" ] || [ "$3" == "" ] 
+then
+	echo "Wrong usage of script!" 
+	echo "CORRECT USAGE -> ./diff.sh gendiff/viewdiff <directory1> <directory2>"
+	echo "EXITING..."
+exit
+fi
+
+if [ ! -d "$2" ]
+then 
+	echo "$2 directory does not exist!"
+	echo "EXITING..."
+exit
+fi
+
+if [ ! -d "$3"  ]
+then
+	echo "$3 directory does not exist!"
+	echo "EXITING..."
+exit
+fi
+
+
+diffdirpath1="$(pwd)/temp/diff1"
+diffdirpath2="$(pwd)/temp/diff2"
+diffdirpath3="$(pwd)/temp/diff3"
+rm -rf temp
+rm -rf diff
+mkdir -p $diffdirpath1 $diffdirpath2 $diffdirpath3
+
+
+#function to generate complete diff and export it in the same folder structure but only diffs inside
+function gendiff () {
+
+	diffdirpath="$3"
+	currentname="$4"
+	tail=$(echo "$currentname" | cut -d "/" -f2-)
+	name=$(echo "$currentname" | sed 's|.*/||')
+	currentname2=$2/$tail
+	difftarget=$diffdirpath/$tail
+
+	diffdirpath3="$5"
+	difftarget3=$diffdirpath3/$tail	
+	
+
+	if [ ! -e "$currentname2" ] && [ ! -e "$difftarget" ]
+	then
+
+		mkdir -p "$(echo $difftarget | sed 's|\(.*\)/.*|\1|')"
+		cp -r "$currentname" "$difftarget"
+
+	elif [ -f "$currentname2" ] && ! cmp -s "$currentname" "$currentname2" && [ ! -e $difftarget3 ]
+	then
+		
+		mkdir -p $(echo "$difftarget3" | sed 's|\(.*\)/.*|\1|')
+		diff "$currentname" "$currentname2" > "$difftarget3"
+
+	fi
+		
+}
+
+function renameall () {
+
+	mv "$1" "$(echo $1 | sed 's|\(.*\)/.*|\1|')/$2$(echo $1 | sed 's|.*/||')"
+
+}
+
+
+function revertrenames () {
+
+	tail=$(echo "$1" | cut -d "/" -f3- | sed 's/^.//')
+
+	if [ -d "temp/diff3/_$tail" ] || [ -d "$2/$tail" ]
+	then
+
+		mv "$1" "$(echo $1 | sed 's|\(.*\)/.*|\1|')/_$tail"
+
+	fi
+
+}
+
+
+
+
+
+
+
+#function to display an overview of the diff with folder tree structs
+function viewdiff () {
+	
+	prefix="\033[1;"
+	suffix="\033[0m"
+	
+	name=$(echo $1 | sed 's|.*/||' | cut -c2-)
+	type=$(echo $1 | sed 's|.*/||' | cut -c1-1)
+
+	spacecount=$(grep -o '/' <<<"$1" | grep -c .)
+	spacecount=$((spacecount-2))
+	spacecount=$((spacecount*3))
+	space=$(for i in $(seq 1 $spacecount);do printf "%s" "-"; done; if [[ $spacecount -gt 0 ]]; then printf ">"; fi)
+
+
+	if [ -d "$1" ]
+	then
+
+		if [ "$type" == "+" ]
+		then
+			printf "$prefix""42m$space$name$suffix\n"
+		elif [ "$type" == "-" ]
+		then
+			printf "$prefix""46m$space$name$suffix\n"
+		elif [ "$type" == "_" ]
+		then
+			printf "$prefix""43m$space$name$suffix\n"
+		fi
+
+	elif [ -f "$1" ]
+	then
+
+		if [ "$type" == "+" ]
+		then
+			printf "$prefix""32m$space$name$suffix\n"
+		elif [ "$type" == "-" ]
+		then
+			printf "$prefix""36m$space$name$suffix\n"
+		elif [ "$type" == "_" ]
+		then
+			printf "$prefix""33m$space$name$suffix\n"
+		fi
+
+	fi
+
+}
+
+
+
+
+#exporting above functions for using it in find exec
+export -f gendiff
+export -f viewdiff
+export -f renameall
+export -f revertrenames
+
+
+
+function gendiffblock () {
+
+	find $2 -mindepth 1 -exec bash -c "gendiff '$2' '$3' '$diffdirpath1' '{}' '$diffdirpath3'" \;
+	find $3 -mindepth 1 -exec bash -c "gendiff '$3' '$2' '$diffdirpath2' '{}' '$diffdirpath3'" \;
+
+	find temp/diff1 -mindepth 1 -depth -exec bash -c "renameall '{}' +" \;
+	find temp/diff2 -mindepth 1 -depth -exec bash -c "renameall '{}' -" \;
+	find temp/diff3 -mindepth 1 -depth -exec bash -c "renameall '{}' _" \;
+
+	find temp/diff1 -mindepth 1 -depth -type d -exec bash -c "revertrenames '{}' $3 '-'" \;
+	find temp/diff2 -mindepth 1 -depth -type d -exec bash -c "revertrenames '{}' $2 '+'" \;
+
+	rsync -a temp/diff2/ temp/diff1
+	rsync -a temp/diff3/ temp/diff1
+
+	mv temp/diff1 temp/diff
+
+	if [ "$4" == "gendiff" ]
+	then
+		mv temp/diff diff
+	fi
+
+}
+
+
+
+
+if [ "$1" == "gendiff"  ]
+then
+
+	echo
+	echo "GENERATING DIFF..."
+
+	gendiffblock 0 $2 $3 gendiff
+
+	echo "DIFF GENERATED!"
+	echo "+ -> Only in $2"
+	echo "- -> Only $3"
+	echo "_ -> Common files/folders with differences"
+	echo
+
+
+
+elif [ "$1" == "viewdiff" ] 
+then
+
+	gendiffblock 0 $2 $3 viewdiff
+
+	
+	echo "DISPLAYING DIFF OVERVIEW TREE..."
+	echo
+
+	find temp/diff -mindepth 1 -exec bash -c "viewdiff '{}'" \;
+
+	echo
+	echo "DIFF OVERVIEW TREE GENERATED!"
+	prefix="\033[1;"
+	suffix="\033[0m"
+	printf "$prefix""32mFile only in $1$suffix\n"
+	printf "$prefix""36mFile only in $2$suffix\n"
+	printf "$prefix""33mCommon file with differences$suffix\n"
+	printf "$prefix""42mFolder only in $1$suffix\n"
+	printf "$prefix""46mFolder only in $2$suffix\n"
+	printf "$prefix""43mCommon folder with differences$suffix\n"
+	echo
+
+fi
+
+
+rm -rf temp
